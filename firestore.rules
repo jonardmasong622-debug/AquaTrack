@@ -1,0 +1,88 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function userDoc() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function isTeacher() { return signedIn() && userDoc().data.role == 'teacher'; }
+    function isClassTeacher(classId) {
+      return signedIn() && get(/databases/$(database)/documents/classes/$(classId)).data.teacherId == request.auth.uid;
+    }
+    function enrolled(classId) {
+      return exists(/databases/$(database)/documents/enrollments/$(classId + '_' + request.auth.uid));
+    }
+
+    // ---- Users: own profile only; role can never be changed afterwards
+    match /users/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn() && request.auth.uid == uid
+                    && request.resource.data.role in ['student', 'teacher'];
+      allow update: if signedIn() && request.auth.uid == uid
+                    && request.resource.data.role == resource.data.role;
+    }
+
+    // ---- Classes
+    match /classes/{classId} {
+      allow read: if signedIn();
+      allow create: if isTeacher() && request.resource.data.teacherId == request.auth.uid;
+      allow update, delete: if signedIn() && resource.data.teacherId == request.auth.uid;
+    }
+
+    // ---- Enrollments (doc id = classId_studentId)
+    match /enrollments/{id} {
+      allow get: if signedIn() && (id.matches('.*_' + request.auth.uid) || isClassTeacher(resource.data.classId));
+      allow list: if signedIn() && (resource.data.studentId == request.auth.uid || isClassTeacher(resource.data.classId));
+      allow create: if signedIn() && request.resource.data.studentId == request.auth.uid
+                    && id == request.resource.data.classId + '_' + request.auth.uid;
+      allow delete: if signedIn() && (resource.data.studentId == request.auth.uid || isClassTeacher(resource.data.classId));
+    }
+
+    // ---- Sessions (public metadata only – NO token here)
+    match /sessions/{sessionId} {
+      allow read: if signedIn();
+      allow create: if isClassTeacher(request.resource.data.classId) && request.resource.data.teacherId == request.auth.uid;
+      allow update: if signedIn() && resource.data.teacherId == request.auth.uid;
+    }
+
+    // ---- Rotating QR token: only the teacher can read/write it.
+    //      Students never see it, so it can only be obtained by scanning the screen.
+    match /sessionTokens/{sessionId} {
+      allow read, update: if signedIn() && resource.data.teacherId == request.auth.uid;
+      allow create: if isTeacher() && request.resource.data.teacherId == request.auth.uid;
+    }
+
+    // ---- Attendance (doc id = sessionId_studentId  → one record per student per class)
+    match /attendance/{id} {
+      allow get: if signedIn() && (id.matches('.*_' + request.auth.uid) || isClassTeacher(resource.data.classId));
+      allow list: if signedIn() && (resource.data.studentId == request.auth.uid || isClassTeacher(resource.data.classId));
+
+      // Teacher marks / auto-absent
+      allow create: if isClassTeacher(request.resource.data.classId)
+                    && request.resource.data.status in ['present', 'late', 'absent', 'excused'];
+
+      // Student one-scan check-in: valid token (current or previous), open session, enrolled,
+      // own account, once only, and status must match the late cut-off (server time).
+      allow create: if signedIn()
+        && request.resource.data.studentId == request.auth.uid
+        && id == request.resource.data.sessionId + '_' + request.auth.uid
+        && request.resource.data.source == 'scan'
+        && get(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data.open == true
+        && get(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data.classId == request.resource.data.classId
+        && enrolled(request.resource.data.classId)
+        && (request.resource.data.token == get(/databases/$(database)/documents/sessionTokens/$(request.resource.data.sessionId)).data.token
+            || request.resource.data.token == get(/databases/$(database)/documents/sessionTokens/$(request.resource.data.sessionId)).data.prevToken)
+        && request.resource.data.status == (request.time > get(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data.lateAt ? 'late' : 'present');
+
+      allow update: if isClassTeacher(resource.data.classId) && request.resource.data.classId == resource.data.classId;
+    }
+
+    // ---- Absence alerts / warnings
+    match /notifications/{id} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isClassTeacher(request.resource.data.classId);
+      allow update: if signedIn() && resource.data.userId == request.auth.uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if signedIn() && resource.data.userId == request.auth.uid;
+    }
+  }
+}

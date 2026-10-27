@@ -1,25 +1,61 @@
 {
   "expo": {
-    "name": "attendance-app",
-    "slug": "attendance-app",
+    "name": "QR Attend",
+    "slug": "qr-attend",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "scheme": [
+      "qrattend",
+      "com.qrattend.app"
+    ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.qrattend.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "QR Attend uses the camera to scan the class QR code."
+      }
     },
     "android": {
+      "package": "com.qrattend.app",
+      "permissions": [
+        "CAMERA",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ],
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0B2E5C",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      },
-      "predictiveBackGestureEnabled": false
+      }
     },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "QR Attend uses the camera to scan the class QR code."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0B2E5C",
+          "image": "./assets/icon.png",
+          "imageWidth": 200
+        }
+      ],
+      "expo-font",
+      "expo-web-browser"
+    ],
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "c6779091-9bec-476a-bc96-c03bcb1e439e"
+      }
     }
   }
 }
